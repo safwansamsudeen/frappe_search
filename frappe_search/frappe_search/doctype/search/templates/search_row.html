@@ -1,0 +1,23 @@
+<h1>{{ title }}</h1>
+
+<input type="search" name="query" id="query" />
+<input type="search" name="query" id="index" />
+<h5>Results for: <span id="query-string"></span></h5>
+<ul id="search-results"></ul>
+
+<script>
+  document.getElementById("query").onkeyup = async (e) => {
+    frappe.call({
+      method: "frappe_search.frappe_search.doctype.test.test.tantivy_search",
+      args: { query: e.target.value },
+      callback: function (r) {
+        console.log(r.message);
+        document.getElementById("query-string").textContent = e.target.value;
+        document.getElementById("search-results").innerHTML =
+          r.message
+            .map(({ doc }) => `<li><b>${doc.title}</b> - ${doc.content}</li>`)
+            .join("") || "No Results";
+      },
+    });
+  };
+</script>
