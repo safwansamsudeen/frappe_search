@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 from __future__ import unicode_literals
 
-from tantivy import Document, Index, SchemaBuilder
+from tantivy import Document, Index, SchemaBuilder, DocAddress
 
 import frappe
 from markdownify import markdownify as md
@@ -26,13 +26,48 @@ EXCLUDED_DOCTYPES = [
 
 
 @frappe.whitelist()
-def tantivy_search(query_txt):
+def tantivy_search(query_txt, number_of_results=15):
     index = Index.open(INDEX_PATH)
     searcher = index.searcher()
-    query = index.parse_query(query_txt, ["title", "content", "name"])
+
+    tokens = query_txt.split()
+    hits = []
+
+    for token in tokens:
+        query = index.parse_query(token, ["title", "content", "name"])
+        hits.append(
+            {
+                (best_doc_address.segment_ord, best_doc_address.doc)
+                for _, best_doc_address in searcher.search(query, 1000).hits
+            }
+        )
+
+    results = list(set.intersection(*hits))
+
+    if not results:
+        query = index.parse_query(query_txt, ["title", "content", "name"])
+        results.extend(
+            [
+                r
+                for _, best_doc_address in searcher.search(
+                    query, number_of_results
+                ).hits
+                if not (r := (best_doc_address.segment_ord, best_doc_address.doc))
+                in results
+            ]
+        )
+
+    if not results:
+        per_token = number_of_results // len(hits)
+        for hit_set in hits:
+            results.extend(list(hit_set)[:per_token])
+
     return [
-        {**(r := searcher.doc(best_doc_address).to_dict()), "url": format_result(r)}
-        for _, best_doc_address in searcher.search(query, 30).hits
+        {
+            **(r := searcher.doc(DocAddress(segment_ord, doc)).to_dict()),
+            "url": format_result(r),
+        }
+        for segment_ord, doc in results
     ]
 
 
@@ -43,7 +78,7 @@ def format_result(record):
 def get_schema():
     schema_builder = SchemaBuilder()
     schema_builder.add_text_field("title", stored=True)
-    schema_builder.add_text_field("content", stored=True)
+    schema_builder.add_text_field("content", stored=True, tokenizer_name="en_stem")
     schema_builder.add_text_field("doctype", stored=True)
     schema_builder.add_text_field("name", stored=True)
     return schema_builder.build()
