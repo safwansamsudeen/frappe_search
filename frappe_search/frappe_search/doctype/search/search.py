@@ -1,11 +1,19 @@
 # Copyright (c) 2024, Safwan Samsudeen and contributors
 # For license information, please see license.txt
+from __future__ import unicode_literals
 
 from tantivy import Document, Index, SchemaBuilder
 
 import frappe
 from frappe.core.utils import html2text
 from frappe.utils.data import get_absolute_url
+
+import frappe
+from frappe.model.document import Document as FrappeDocument
+
+
+class Search(FrappeDocument):
+    pass
 
 
 INDEX_PATH = "/Users/safwan/frappe-bench/apps/frappe_search/index"
