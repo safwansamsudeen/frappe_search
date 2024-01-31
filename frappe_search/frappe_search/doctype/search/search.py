@@ -5,7 +5,7 @@ from __future__ import unicode_literals
 from tantivy import Document, Index, SchemaBuilder
 
 import frappe
-from frappe.core.utils import html2text
+from markdownify import markdownify as md
 from frappe.utils.data import get_absolute_url
 
 import frappe
@@ -37,7 +37,7 @@ def tantivy_search(query_txt):
 
 
 def format_result(record):
-    return f'<a href="{get_absolute_url(record["doctype"][0], record["name"][0])}">{record["title"][0]}</a>'
+    return get_absolute_url(record["doctype"][0], record["name"][0])
 
 
 def get_schema():
@@ -80,7 +80,7 @@ def complete_index():
                     data = {
                         "title": title,
                         "content": "\n".join(
-                            map(lambda x: html2text(str(x)), record.values())
+                            map(lambda x: md(str(x), convert=[]), record.values())
                         ),
                         "name": record.name or title,
                         "doctype": doctype["name"],
