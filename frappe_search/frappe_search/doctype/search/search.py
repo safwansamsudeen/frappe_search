@@ -6,6 +6,8 @@ from tantivy import Document, Index, SchemaBuilder, DocAddress
 from collections import defaultdict
 
 import frappe
+import os
+import shutil
 from markdownify import markdownify as md
 from frappe.utils.data import get_absolute_url
 
@@ -43,6 +45,9 @@ def tantivy_search(query_txt, target_number=20):
             }
         )
 
+    if all(not hit for hit in hits):
+        return []
+
     results = list(set.intersection(*hits))
 
     if not results:
@@ -61,7 +66,7 @@ def tantivy_search(query_txt, target_number=20):
     if not results:
         per_token = target_number // len(hits)
         for hit_set in hits:
-            results.extend(list(hit_set[:per_token]))
+            results.extend(list(hit_set)[:per_token])
 
     results = [
         {
@@ -102,6 +107,8 @@ def get_schema():
 
 @frappe.whitelist()
 def complete_index():
+    shutil.rmtree(INDEX_PATH)
+    os.mkdir(INDEX_PATH)
     doctypes = frappe.get_all(
         "DocType",
         fields=["name", "title_field"],

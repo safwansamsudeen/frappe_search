@@ -3,6 +3,21 @@
 
 frappe.ui.form.on("Search", {
   refresh(frm) {
+    frm.add_custom_button("Index", () => {
+      frappe.confirm(
+        "Are you sure you want to index or reindex the entire DB?",
+        () => {
+          frappe.call({
+            method:
+              "frappe_search.frappe_search.doctype.search.search.complete_index",
+            callback: (e) =>
+              frappe.msgprint(
+                `Completed indexing: added ${e.message[1]} items.`
+              ),
+          });
+        }
+      );
+    });
     frm.add_custom_button("Search", () => {
       frappe.prompt(
         [{ fieldname: "query", fieldtype: "Data", label: "Query", reqd: 1 }],
