@@ -3,6 +3,7 @@
 from __future__ import unicode_literals
 
 from tantivy import Document, Index, SchemaBuilder, DocAddress
+from collections import defaultdict
 
 import frappe
 from markdownify import markdownify as md
@@ -26,7 +27,7 @@ EXCLUDED_DOCTYPES = [
 
 
 @frappe.whitelist()
-def tantivy_search(query_txt, number_of_results=15):
+def tantivy_search(query_txt, target_number=20):
     index = Index.open(INDEX_PATH)
     searcher = index.searcher()
 
@@ -50,7 +51,7 @@ def tantivy_search(query_txt, number_of_results=15):
             [
                 r
                 for _, best_doc_address in searcher.search(
-                    query, number_of_results
+                    query, target_number // 3
                 ).hits
                 if not (r := (best_doc_address.segment_ord, best_doc_address.doc))
                 in results
@@ -58,17 +59,32 @@ def tantivy_search(query_txt, number_of_results=15):
         )
 
     if not results:
-        per_token = number_of_results // len(hits)
+        per_token = target_number // len(hits)
         for hit_set in hits:
-            results.extend(list(hit_set)[:per_token])
+            results.extend(list(hit_set[:per_token]))
 
-    return [
+    results = [
         {
             **(r := searcher.doc(DocAddress(segment_ord, doc)).to_dict()),
             "url": format_result(r),
         }
         for segment_ord, doc in results
     ]
+
+    return groupby_and_trim_results(results, target_number)
+
+
+def groupby_and_trim_results(records, target_number):
+    results = defaultdict(list)
+    for record in records:
+        results[record["doctype"][0]].append(record)
+    max_group_length = target_number // len(results)
+
+    trimmed_groups = {
+        doctype: res[:max_group_length] for doctype, res in results.items()
+    }
+
+    return dict(sorted(trimmed_groups.items(), key=lambda x: len(x[1]), reverse=True))
 
 
 def format_result(record):
@@ -77,7 +93,7 @@ def format_result(record):
 
 def get_schema():
     schema_builder = SchemaBuilder()
-    schema_builder.add_text_field("title", stored=True)
+    schema_builder.add_text_field("title", stored=True, tokenizer_name="en_stem")
     schema_builder.add_text_field("content", stored=True, tokenizer_name="en_stem")
     schema_builder.add_text_field("doctype", stored=True)
     schema_builder.add_text_field("name", stored=True)

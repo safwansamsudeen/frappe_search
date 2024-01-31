@@ -10,31 +10,51 @@ frappe.ui.form.on("Search", {
           const min = (x, y) => (x > y ? y : x);
           const max = (x, y) => (x > y ? x : y);
 
-          function showRecord(record) {
+          function highlight(record) {
             tokens = query.split(" ");
-            let content_new = "";
-            let title_new = "";
+            let new_content = "";
+            let new_title = record.title[0];
             for (let token of tokens) {
-              content_idx = record.content[0].search(new RegExp(token, "ig"));
-              content_new +=
-                record.content[0]
-                  .slice(
-                    max(content_idx - 15, 0),
-                    min(content_idx + 15, record.content[0].length)
-                  )
-                  .replaceAll(
-                    new RegExp(token, "ig"),
-                    (token) => `<mark>${token}</mark>`
-                  )
-                  .trim() + "... ";
-
-              title_new = record.title[0].replaceAll(
+              content_indices = getIndicesOf(token, record.content[0], false);
+              for (idx of content_indices)
+                new_content +=
+                  record.content[0]
+                    .slice(
+                      max(idx - 15 - token.length, 0),
+                      min(idx + 15 + token.length, record.content[0].length)
+                    )
+                    .replaceAll(
+                      new RegExp(token, "ig"),
+                      (token) => `<mark>${token}</mark>`
+                    )
+                    .trim() + "... ";
+              new_title = new_title.replaceAll(
                 new RegExp(token, "ig"),
                 (token) => `<mark>${token}</mark>`
               );
             }
 
-            return `<div><a href="${record.url}}">${title_new}</a><br><p>${content_new}</p></div>`;
+            return { ...record, content: new_content, title: new_title };
+          }
+
+          function sortRecords(prev, curr) {
+            return (
+              (curr.content.match(/<mark>/g)?.length || 0) -
+              (prev.content.match(/<mark>/g)?.length || 0)
+            );
+          }
+
+          function prioritizeTitle(prev, curr) {
+            return (
+              (curr.title.match(/<mark>/g)?.length || 0) -
+              (prev.title.match(/<mark>/g)?.length || 0)
+            );
+          }
+
+          function showResult(record) {
+            return `<div><a href="${record.url}">${
+              record.title
+            }</a><br><p>${record.content.replaceAll("\n", " · ")}</p></div>`;
           }
 
           frappe.call({
@@ -42,15 +62,15 @@ frappe.ui.form.on("Search", {
               "frappe_search.frappe_search.doctype.search.search.tantivy_search",
             args: { query_txt: query },
             callback: (e) => {
-              let groups = Object.groupBy(e.message, (r) => r.doctype);
-              let sortedGroups = Object.entries(groups).sort(
-                (l, l2) => l2[1].length - l[1].length
-              );
-              console.log(e.message);
               let html = "";
-              for (let [groupName, results] of sortedGroups) {
+              for (let [groupName, results] of Object.entries(e.message)) {
                 html += `<div class="py-3"> <h3>${groupName}</h3>`;
-                html += `${results.map(showRecord).join("<hr />")}</div>`;
+                html += `${results
+                  .map(highlight)
+                  .sort(sortRecords)
+                  .sort(prioritizeTitle)
+                  .map(showResult)
+                  .join("<hr />")}</div>`;
               }
               frappe.msgprint(html, "Search Results");
             },
@@ -60,3 +80,22 @@ frappe.ui.form.on("Search", {
     });
   },
 });
+
+function getIndicesOf(searchStr, str, caseSensitive) {
+  var searchStrLen = searchStr.length;
+  if (searchStrLen == 0) {
+    return [];
+  }
+  var startIndex = 0,
+    index,
+    indices = [];
+  if (!caseSensitive) {
+    str = str.toLowerCase();
+    searchStr = searchStr.toLowerCase();
+  }
+  while ((index = str.indexOf(searchStr, startIndex)) > -1) {
+    indices.push(index);
+    startIndex = index + searchStrLen;
+  }
+  return indices;
+}
