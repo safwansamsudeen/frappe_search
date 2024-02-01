@@ -6,6 +6,7 @@ from tantivy import Document, Index, SchemaBuilder, DocAddress
 from collections import defaultdict
 
 import frappe
+import re
 import os
 import shutil
 from markdownify import markdownify as md
@@ -36,6 +37,7 @@ def tantivy_search(query_txt, target_number=20):
     tokens = query_txt.split()
     hits = []
 
+    # Parse individual tokens, and try to see intersections
     for token in tokens:
         query = index.parse_query(token, ["title", "content", "name"])
         hits.append(
@@ -45,11 +47,13 @@ def tantivy_search(query_txt, target_number=20):
             }
         )
 
+    # If there are no hits at all, there are no results.
     if all(not hit for hit in hits):
         return []
 
     results = list(set.intersection(*hits))
 
+    # Parse entire query
     if not results:
         query = index.parse_query(query_txt, ["title", "content", "name"])
         results.extend(
@@ -63,6 +67,7 @@ def tantivy_search(query_txt, target_number=20):
             ]
         )
 
+    # If that too doesn't work, merge results from each individual token
     if not results:
         per_token = target_number // len(hits)
         for hit_set in hits:
@@ -76,7 +81,14 @@ def tantivy_search(query_txt, target_number=20):
         for segment_ord, doc in results
     ]
 
-    return groupby_and_trim_results(results, target_number)
+    return groupby_and_trim_results(
+        sorted(
+            map(lambda r: highlight(r, tokens), results),
+            key=lambda r: (r["no_title_highlights"], r["no_content_highlights"]),
+            reverse=True,
+        ),
+        target_number,
+    )
 
 
 def groupby_and_trim_results(records, target_number):
@@ -90,6 +102,46 @@ def groupby_and_trim_results(records, target_number):
     }
 
     return dict(sorted(trimmed_groups.items(), key=lambda x: len(x[1]), reverse=True))
+
+
+def highlight(record, tokens):
+    title = record["title"][0]
+    highlighted_content = ""
+    for token in tokens:
+        title = re.sub(
+            token,
+            lambda m: f"<mark>{m.group()}</mark>",
+            title,
+            flags=re.M | re.I,
+        )
+        content_indices = [
+            m.start() for m in re.finditer(token, record["content"][0], re.M | re.I)
+        ]
+        for idx in content_indices:
+            snippet = record["content"][0][
+                max(idx - 15 - len(token), 0) : min(idx + 15, len(record["content"][0]))
+            ]
+            highlighted_content += (
+                re.sub(
+                    token,
+                    lambda m: f"<mark>{m.group()}</mark>",
+                    snippet,
+                    flags=re.M | re.I,
+                )
+                + "... "
+            )
+            if record["doctype"][0] == "GP Discussion":
+                print(highlighted_content)
+
+    highlighted_content = highlighted_content.strip("- \n.")
+    return {
+        **record,
+        "highlighted_title": title,
+        "highlighted_content": highlighted_content
+        + ("..." if highlighted_content else ""),
+        "no_title_highlights": title.count("<mark>"),
+        "no_content_highlights": highlighted_content.count("<mark>"),
+    }
 
 
 def format_result(record):
@@ -137,7 +189,7 @@ def complete_index():
                     title = record.pop(title_field)
                     data = {
                         "title": title,
-                        "content": "\n".join(
+                        "content": "|||".join(
                             map(lambda x: md(str(x), convert=[]), record.values())
                         ),
                         "name": record.name or title,
