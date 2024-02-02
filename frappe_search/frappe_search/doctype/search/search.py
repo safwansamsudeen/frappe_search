@@ -4,6 +4,7 @@ from __future__ import unicode_literals
 
 from tantivy import Document, Index, SchemaBuilder, DocAddress, SnippetGenerator
 from collections import defaultdict
+from datetime import datetime
 
 import frappe
 from markdownify import markdownify as md
@@ -26,15 +27,18 @@ EXCLUDED_DOCTYPES = [
 ]
 
 DOCTYPES = {
-    "GP Discussion": ("title", ["content"]),
-    "GP Page": ("title", ["content"]),
-    "GP Comment": ("name", ["content"]),
-    "User": ("full_name", ["email"]),
+    "GP Discussion": ("title", ["content"], ["team", "project"]),
+    "GP Page": ("title", ["content"], ["team", "project"]),
+    "GP Comment": ("name", ["content"], []),
 }
 
 
 @frappe.whitelist()
-def tantivy_search(query_txt, target_number=20):
+def tantivy_search(query, target_number=20, groupby=True):
+    # Gimick to ensure users can name the argument as `query`
+    query_txt = query
+
+    # a = datetime.now()
     schema = get_schema()
     index = Index.open(INDEX_PATH)
     searcher = index.searcher()
@@ -82,19 +86,26 @@ def tantivy_search(query_txt, target_number=20):
             ]
         )
         highlights.extend(highlight(results, searcher, non_fuzzy_query, schema))
+
     # If that too doesn't work, merge results from each individual token
     if not results:
         per_token = target_number // len(hits)
         for hit_set in hits:
             results.extend(list(hit_set)[:per_token])
 
-    return groupby_and_trim_results(
-        sorted(
-            (r for r in highlights if r["addr"] in results),
-            key=lambda r: (r["no_of_title_highlights"], r["no_of_content_highlights"]),
-            reverse=True,
-        ),
-        target_number,
+    result_docs = sorted(
+        (r for r in highlights if r["addr"] in results),
+        key=lambda r: (r["no_of_title_highlights"], r["no_of_content_highlights"]),
+        reverse=True,
+    )
+
+    b = datetime.now()
+
+    # print((b - a).seconds)
+    return (
+        groupby_and_trim_results(result_docs, target_number)
+        if groupby
+        else result_docs[:target_number]
     )
 
 
@@ -115,7 +126,6 @@ def highlight(results, searcher, query, schema):
     content_snippet_generator = SnippetGenerator.create(
         searcher, query, schema, "content"
     )
-    print(title_snippet_generator, query)
 
     cleaned_results = []
     for segment_ord, _doc in results:
@@ -125,6 +135,7 @@ def highlight(results, searcher, query, schema):
         # if title_snippet.highlighted() or content_snippet.highlighted():
         cleaned_results.append(
             {
+                "name": doc["name"][0],
                 "title": doc["title"][0],
                 "content": doc["content"][0],
                 "doctype": doc["doctype"][0],
@@ -137,6 +148,7 @@ def highlight(results, searcher, query, schema):
                 "no_of_title_highlights": len(title_snippet.highlighted()),
                 "no_of_content_highlights": len(content_snippet.highlighted()),
                 "url": get_url(doc),
+                "extras": doc["extras"][0],
                 "id": doc["id"][0],
                 "addr": (segment_ord, _doc),
             }
@@ -150,12 +162,12 @@ def get_url(record):
 
 def get_schema():
     schema_builder = SchemaBuilder()
+    schema_builder.add_text_field("id", stored=True)
+    schema_builder.add_text_field("name", stored=True)
     schema_builder.add_text_field("title", stored=True, tokenizer_name="en_stem")
     schema_builder.add_text_field("content", stored=True, tokenizer_name="en_stem")
+    schema_builder.add_json_field("extras", stored=True)
     schema_builder.add_text_field("doctype", stored=True)
-    schema_builder.add_text_field("name", stored=True)
-    # Use text field for ID as hash values will be very large
-    schema_builder.add_text_field("id", stored=True)
     return schema_builder.build()
 
 
@@ -218,6 +230,8 @@ def build_complete_index(auto_index=False):
             if auto_index
             else doctype_record[1]
         )
+        extra_fields = [] if auto_index else doctype_record[2]
+
         if (
             not auto_index
             or doctype_obj.index_web_pages_for_search
@@ -227,11 +241,16 @@ def build_complete_index(auto_index=False):
                 doctype["title_field"] or "name" if auto_index else doctype_record[0]
             )
             db_records = frappe.get_all(
-                doctype["name"], fields=[title_field, *content_fields, "name"]
+                doctype["name"],
+                fields=[title_field, *content_fields, *extra_fields, "name"],
             )
             if db_records:
                 for record in db_records:
                     title = record.pop(title_field)
+                    extras = {}
+                    for extra_field in extra_fields:
+                        extras[extra_field] = record.pop(extra_field)
+
                     unique_str = f'{doctype["name"]}-{record.name}'
                     data = {
                         "title": str(title),
@@ -240,6 +259,7 @@ def build_complete_index(auto_index=False):
                         ),
                         "name": record.name or title,
                         "doctype": doctype["name"],
+                        "extras": extras,
                         "id": unique_str,
                     }
                     no_records += 1

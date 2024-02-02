@@ -26,9 +26,10 @@ frappe.ui.form.on("Search", {
           frappe.call({
             method:
               "frappe_search.frappe_search.doctype.search.search.tantivy_search",
-            args: { query_txt: query },
+            args: { query },
             callback: (e) => {
               let html = "";
+              console.log(e.message);
               for (let [groupName, results] of Object.entries(e.message)) {
                 html += `<div class="py-3"> <h3>${groupName}</h3>`;
                 html += `${results.map(showResult).join("<hr />")}</div>`;
