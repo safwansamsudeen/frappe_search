@@ -28,6 +28,12 @@ EXCLUDED_DOCTYPES = [
     "Notification Settings",
 ]
 
+DOCTYPES = {
+    "GP Discussion": ("title", ["content"]),
+    "GP Page": ("title", ["content"]),
+    "GP Comment": ("name", ["content"]),
+}
+
 
 @frappe.whitelist()
 def tantivy_search(query_txt, target_number=20):
@@ -39,7 +45,11 @@ def tantivy_search(query_txt, target_number=20):
 
     # Parse individual tokens, and try to see intersections
     for token in tokens:
-        query = index.parse_query(token, ["title", "content", "name"])
+        query = index.parse_query(
+            token,
+            ["title", "content", "name"],
+            fuzzy_fields={"title": (True, 2, True), "content": (True, 2, True)},
+        )
         hits.append(
             {
                 (best_doc_address.segment_ord, best_doc_address.doc)
@@ -55,7 +65,11 @@ def tantivy_search(query_txt, target_number=20):
 
     # Parse entire query
     if not results:
-        query = index.parse_query(query_txt, ["title", "content", "name"])
+        query = index.parse_query(
+            query_txt,
+            ["title", "content", "name"],
+            fuzzy_fields={"title": (True, 2, True), "content": (True, 2, True)},
+        )
         results.extend(
             [
                 r
@@ -66,7 +80,6 @@ def tantivy_search(query_txt, target_number=20):
                 in results
             ]
         )
-
     # If that too doesn't work, merge results from each individual token
     if not results:
         per_token = target_number // len(hits)
@@ -100,7 +113,6 @@ def groupby_and_trim_results(records, target_number):
     trimmed_groups = {
         doctype: res[:max_group_length] for doctype, res in results.items()
     }
-
     return dict(sorted(trimmed_groups.items(), key=lambda x: len(x[1]), reverse=True))
 
 
@@ -130,8 +142,6 @@ def highlight(record, tokens):
                 )
                 + "... "
             )
-            if record["doctype"][0] == "GP Discussion":
-                print(highlighted_content)
 
     highlighted_content = highlighted_content.strip("- \n.")
     return {
@@ -158,7 +168,17 @@ def get_schema():
 
 
 @frappe.whitelist()
-def complete_index():
+def update_index(doc, _=None):
+    index = Index(get_schema(), path=INDEX_PATH)
+    if doc.doctype in DOCTYPES:
+        print(
+            index.searcher().search(index.parse_query(str(doc.name), ["name"]), 1).hits
+        )
+        print(frappe.get_doc(doc.doctype, doc.name))
+
+
+@frappe.whitelist()
+def complete_index(auto_index=False):
     shutil.rmtree(INDEX_PATH)
     os.mkdir(INDEX_PATH)
     doctypes = frappe.get_all(
@@ -173,14 +193,25 @@ def complete_index():
     no_records = 0
 
     for doctype in doctypes:
-        if doctype["name"] in EXCLUDED_DOCTYPES:
+        if not auto_index and doctype["name"] not in DOCTYPES:
+            continue
+        if auto_index and doctype["name"] in EXCLUDED_DOCTYPES:
             continue
         doctype_obj = frappe.get_doc("DocType", doctype["name"])
-        content_fields = [
-            field.fieldname for field in doctype_obj.fields if field.in_global_search
-        ]
-        if doctype_obj.index_web_pages_for_search and not doctype_obj.issingle:
-            title_field = doctype["title_field"] or "name"
+        doctype_record = DOCTYPES.get(doctype["name"])
+        content_fields = (
+            [field.fieldname for field in doctype_obj.fields if field.in_global_search]
+            if auto_index
+            else doctype_record[1]
+        )
+        if (
+            not auto_index
+            or doctype_obj.index_web_pages_for_search
+            and not doctype_obj.issingle
+        ):
+            title_field = (
+                doctype["title_field"] or "name" if auto_index else doctype_record[0]
+            )
             db_records = frappe.get_all(
                 doctype["name"], fields=[title_field, *content_fields, "name"]
             )
@@ -188,7 +219,7 @@ def complete_index():
                 for record in db_records:
                     title = record.pop(title_field)
                     data = {
-                        "title": title,
+                        "title": str(title),
                         "content": "|||".join(
                             map(lambda x: md(str(x), convert=[]), record.values())
                         ),
