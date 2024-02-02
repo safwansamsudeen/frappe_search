@@ -27,12 +27,11 @@ frappe.ui.form.on("Search", {
             method:
               "frappe_search.frappe_search.doctype.search.search.tantivy_search",
             args: { query },
-            callback: (e) => {
-              let html = "";
-              console.log(e.message);
-              for (let [groupName, results] of Object.entries(e.message)) {
-                html += `<div class="py-3"> <h3>${groupName}</h3>`;
-                html += `${results.map(showResult).join("<hr />")}</div>`;
+            callback: ({ message: { results, duration, total } }) => {
+              let html = `<p>You obtained ${total} results in about ${duration} seconds.</p>`;
+              for (let [groupName, groupResults] of Object.entries(results)) {
+                html += `<div class="py-3"><h3>${groupName}</h3>`;
+                html += `${groupResults.map(showResult).join("<hr />")}</div>`;
               }
               frappe.msgprint(html, "Search Results");
             },

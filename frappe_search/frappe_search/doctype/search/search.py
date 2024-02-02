@@ -38,7 +38,7 @@ def tantivy_search(query, target_number=20, groupby=True):
     # Gimick to ensure users can name the argument as `query`
     query_txt = query
 
-    # a = datetime.now()
+    a = datetime.now()
     schema = get_schema()
     index = Index.open(INDEX_PATH)
     searcher = index.searcher()
@@ -100,25 +100,35 @@ def tantivy_search(query, target_number=20, groupby=True):
     )
 
     b = datetime.now()
-
-    # print((b - a).seconds)
-    return (
+    n, final_results = (
         groupby_and_trim_results(result_docs, target_number)
         if groupby
-        else result_docs[:target_number]
+        else (target_number, result_docs[:target_number])
     )
+    diff = b - a
+    return {
+        "results": final_results,
+        "duration": diff.seconds * 100 + (diff.microseconds / 1000),
+        "total": n,
+    }
 
 
 def groupby_and_trim_results(records, target_number):
     results = defaultdict(list)
     for record in records:
         results[record["doctype"]].append(record)
-    max_group_length = target_number // len(results)
 
-    trimmed_groups = {
-        doctype: res[:max_group_length] for doctype, res in results.items()
-    }
-    return dict(sorted(trimmed_groups.items(), key=lambda x: len(x[1]), reverse=True))
+    max_group_length = target_number // len(results)
+    trimmed_groups = {}
+    n = 0
+
+    for doctype, res in results.items():
+        trimmed_groups[doctype] = res[:max_group_length]
+        n += len(res[:max_group_length])
+
+    return n, dict(
+        sorted(trimmed_groups.items(), key=lambda x: len(x[1]), reverse=True)
+    )
 
 
 def highlight(results, searcher, query, schema):
