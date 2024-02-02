@@ -9,7 +9,7 @@ frappe.ui.form.on("Search", {
         () => {
           frappe.call({
             method:
-              "frappe_search.frappe_search.doctype.search.search.complete_index",
+              "frappe_search.frappe_search.doctype.search.search.build_complete_index",
             callback: (e) =>
               frappe.msgprint(
                 `Completed indexing: added ${e.message[1]} items.`

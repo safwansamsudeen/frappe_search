@@ -7,8 +7,6 @@ from collections import defaultdict
 
 import frappe
 import re
-import os
-import shutil
 from markdownify import markdownify as md
 from frappe.utils.data import get_absolute_url
 
@@ -164,23 +162,43 @@ def get_schema():
     schema_builder.add_text_field("content", stored=True, tokenizer_name="en_stem")
     schema_builder.add_text_field("doctype", stored=True)
     schema_builder.add_text_field("name", stored=True)
+    # Use text field for ID as hash values will be very large
+    schema_builder.add_text_field("id", stored=True)
     return schema_builder.build()
 
 
 @frappe.whitelist()
 def update_index(doc, _=None):
     index = Index(get_schema(), path=INDEX_PATH)
-    if doc.doctype in DOCTYPES:
-        print(
-            index.searcher().search(index.parse_query(str(doc.name), ["name"]), 1).hits
+    writer = index.writer()
+    if doc.doctype not in DOCTYPES:
+        return False
+
+    id = f"{doc.doctype}-{doc.name}"
+    writer.delete_documents("id", id)
+    writer.commit()
+
+    title_field, content_fields = DOCTYPES[doc.doctype]
+    writer.add_document(
+        Document(
+            id=id,
+            doctype=doc.doctype,
+            name=doc.name,
+            title=str(getattr(doc, title_field)),
+            content="|||".join(
+                map(
+                    lambda x: md(str(x), convert=[]),
+                    (getattr(doc, field) for field in content_fields),
+                )
+            ),
         )
-        print(frappe.get_doc(doc.doctype, doc.name))
+    )
+    writer.commit()
+    return True
 
 
 @frappe.whitelist()
-def complete_index(auto_index=False):
-    shutil.rmtree(INDEX_PATH)
-    os.mkdir(INDEX_PATH)
+def build_complete_index(auto_index=False):
     doctypes = frappe.get_all(
         "DocType",
         fields=["name", "title_field"],
@@ -188,6 +206,10 @@ def complete_index(auto_index=False):
     schema = get_schema()
     index = Index(schema, path=INDEX_PATH)
     writer = index.writer()
+
+    # Reset index
+    writer.delete_all_documents()
+    writer.commit()
 
     records = []
     no_records = 0
@@ -218,6 +240,7 @@ def complete_index(auto_index=False):
             if db_records:
                 for record in db_records:
                     title = record.pop(title_field)
+                    unique_str = f'{doctype["name"]}-{record.name}'
                     data = {
                         "title": str(title),
                         "content": "|||".join(
@@ -225,6 +248,7 @@ def complete_index(auto_index=False):
                         ),
                         "name": record.name or title,
                         "doctype": doctype["name"],
+                        "id": unique_str,
                     }
                     no_records += 1
                     records.append(data)
