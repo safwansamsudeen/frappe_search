@@ -63,6 +63,6 @@ function getIndicesOf(searchStr, str, caseSensitive) {
 
 function showResult(record) {
   return `<div><a href="${record.url}">${
-    record.highlighted_title
+    record.highlighted_title || record.title
   }</a><br><p>${record.highlighted_content.replaceAll("|||", " · ")}</p></div>`;
 }
