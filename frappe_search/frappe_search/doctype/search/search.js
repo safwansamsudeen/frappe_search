@@ -8,12 +8,9 @@ frappe.ui.form.on("Search", {
         "Are you sure you want to index or reindex the entire DB?",
         () => {
           frappe.call({
-            method:
-              "frappe_search.frappe_search.doctype.search.search.build_complete_index",
+            method: "frappe_search.core.build_index",
             callback: (e) =>
-              frappe.msgprint(
-                `Completed indexing: added ${e.message[1]} items.`
-              ),
+              frappe.msgprint(`Completed indexing: added ${e.message} items.`),
           });
         }
       );
@@ -24,11 +21,10 @@ frappe.ui.form.on("Search", {
         [{ fieldname: "query", fieldtype: "Data", label: "Query", reqd: 1 }],
         function ({ query }) {
           frappe.call({
-            method:
-              "frappe_search.frappe_search.doctype.search.search.tantivy_search",
-            args: { query },
+            method: "frappe_search.core.search",
+            args: { query, groupby: true },
             callback: ({ message: { results, duration, total } }) => {
-              let html = `<p>You obtained ${total} results in about ${duration} seconds.</p>`;
+              let html = `<p>You obtained ${total} results in about ${duration} milliseconds.</p>`;
               for (let [groupName, groupResults] of Object.entries(results)) {
                 html += `<div class="py-3"><h3>${groupName}</h3>`;
                 html += `${groupResults.map(showResult).join("<hr />")}</div>`;

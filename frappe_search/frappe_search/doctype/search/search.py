@@ -26,18 +26,8 @@ EXCLUDED_DOCTYPES = [
     "Notification Settings",
 ]
 
-DOCTYPES = {
-    "GP Discussion": ("title", ["content"], ["team", "project"]),
-    "GP Page": ("title", ["content"], ["team", "project"]),
-    "GP Comment": ("name", ["content"], []),
-}
 
-
-@frappe.whitelist()
-def tantivy_search(query, target_number=20, groupby=True):
-    # Gimick to ensure users can name the argument as `query`
-    query_txt = query
-
+def tantivy_search(query_txt, target_number, groupby):
     a = datetime.now()
     schema = get_schema()
     index = Index.open(INDEX_PATH)
@@ -64,7 +54,13 @@ def tantivy_search(query, target_number=20, groupby=True):
 
     # If there are no hits at all, there are no results.
     if all(not hit for hit in hits):
-        return []
+        b = datetime.now()
+        diff = b - a
+        return {
+            "results": [],
+            "duration": diff.seconds * 100 + (diff.microseconds / 1000),
+            "total": 0,
+        }
 
     results = list(set.intersection(*hits))
 
@@ -106,6 +102,7 @@ def tantivy_search(query, target_number=20, groupby=True):
         else (target_number, result_docs[:target_number])
     )
     diff = b - a
+
     return {
         "results": final_results,
         "duration": diff.seconds * 100 + (diff.microseconds / 1000),
@@ -142,7 +139,6 @@ def highlight(results, searcher, query, schema):
         doc = searcher.doc(DocAddress(segment_ord, _doc))
         title_snippet = title_snippet_generator.snippet_from_doc(doc)
         content_snippet = content_snippet_generator.snippet_from_doc(doc)
-        # if title_snippet.highlighted() or content_snippet.highlighted():
         cleaned_results.append(
             {
                 "name": doc["name"][0],
@@ -184,15 +180,33 @@ def get_schema():
 @frappe.whitelist()
 def update_index(doc, _=None):
     index = Index(get_schema(), path=INDEX_PATH)
+    included_doctypes = frappe.get_hooks("frappe_search_doctypes", {})
     writer = index.writer()
-    if doc.doctype not in DOCTYPES:
+    if not included_doctypes:
+        doctype_obj = frappe.get_doc("DocType", doc.doctype)
+        if not doctype_obj.index_web_pages_for_search or doctype_obj.issingle:
+            return False
+        title = doctype_obj.title_field or "name"
+        included_doctypes[doctype_obj.name] = {
+            "title": title,
+            "content": [
+                field.fieldname
+                for field in doctype_obj.fields
+                if field.in_global_search and field.fieldname != title
+            ],
+            "extras": [],
+        }
+    elif doc.doctype not in included_doctypes:
         return False
 
     id = f"{doc.doctype}-{doc.name}"
     writer.delete_documents("id", id)
     writer.commit()
 
-    title_field, content_fields = DOCTYPES[doc.doctype]
+    title_field = included_doctypes[doc.doctype]["title"]
+    content_fields = included_doctypes[doc.doctype]["content"]
+    extra_fields = included_doctypes[doc.doctype]["extras"]
+
     writer.add_document(
         Document(
             id=id,
@@ -205,14 +219,19 @@ def update_index(doc, _=None):
                     (getattr(doc, field) for field in content_fields),
                 )
             ),
+            extras={field: getattr(doc, field) for field in extra_fields},
         )
     )
     writer.commit()
+
     return True
 
 
-@frappe.whitelist()
 def build_complete_index(auto_index=False):
+    included_doctypes = frappe.get_hooks("frappe_search_doctypes", {})
+    if not included_doctypes:
+        auto_index = True
+
     doctypes = frappe.get_all(
         "DocType",
         fields=["name", "title_field"],
@@ -225,22 +244,26 @@ def build_complete_index(auto_index=False):
     writer.delete_all_documents()
     writer.commit()
 
-    records = []
     no_records = 0
 
     for doctype in doctypes:
-        if not auto_index and doctype["name"] not in DOCTYPES:
+        if not auto_index and doctype["name"] not in included_doctypes:
             continue
         if auto_index and doctype["name"] in EXCLUDED_DOCTYPES:
             continue
+
         doctype_obj = frappe.get_doc("DocType", doctype["name"])
-        doctype_record = DOCTYPES.get(doctype["name"])
+        doctype_record = included_doctypes.get(doctype["name"])
         content_fields = (
-            [field.fieldname for field in doctype_obj.fields if field.in_global_search]
+            [
+                field.fieldname
+                for field in doctype_obj.fields
+                if field.in_global_search and field.fieldname != title
+            ]
             if auto_index
-            else doctype_record[1]
+            else doctype_record["content"]
         )
-        extra_fields = [] if auto_index else doctype_record[2]
+        extra_fields = [] if auto_index else doctype_record["extras"]
 
         if (
             not auto_index
@@ -248,8 +271,9 @@ def build_complete_index(auto_index=False):
             and not doctype_obj.issingle
         ):
             title_field = (
-                doctype["title_field"] or "name" if auto_index else doctype_record[0]
-            )
+                doctype["title_field"] if auto_index else doctype_record["title"][-1]
+            ) or "name"
+
             db_records = frappe.get_all(
                 doctype["name"],
                 fields=[title_field, *content_fields, *extra_fields, "name"],
@@ -273,8 +297,7 @@ def build_complete_index(auto_index=False):
                         "id": unique_str,
                     }
                     no_records += 1
-                    records.append(data)
                     writer.add_document(Document(**data))
 
     writer.commit()
-    return records, no_records
+    return no_records
