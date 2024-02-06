@@ -6,12 +6,11 @@ import frappe
 
 
 @frappe.whitelist()
-def search(query, target_number=25, groupby=False):
+def search(query, target_number=25, groupby=True):
     if groupby == "true":
         groupby = True
     elif isinstance(groupby, str):
         groupby = False
-
     return tantivy_search(query, target_number, groupby)
 
 

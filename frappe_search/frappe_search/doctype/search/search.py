@@ -89,8 +89,13 @@ def tantivy_search(query_txt, target_number, groupby):
         for hit_set in hits:
             results.extend(list(hit_set)[:per_token])
 
+    result_docs = []
+    for r in highlights:
+        if r not in result_docs and r["addr"] in results:
+            result_docs.append(r)
+
     result_docs = sorted(
-        (r for r in highlights if r["addr"] in results),
+        result_docs,
         key=lambda r: (r["no_of_title_highlights"], r["no_of_content_highlights"]),
         reverse=True,
     )
@@ -188,7 +193,7 @@ def update_index(doc, _=None):
             return False
         title = doctype_obj.title_field or "name"
         included_doctypes[doctype_obj.name] = {
-            "title": title,
+            "title": [title],
             "content": [
                 field.fieldname
                 for field in doctype_obj.fields
@@ -203,10 +208,9 @@ def update_index(doc, _=None):
     writer.delete_documents("id", id)
     writer.commit()
 
-    title_field = included_doctypes[doc.doctype]["title"]
+    title_field = included_doctypes[doc.doctype].get("title", ["name"])[0]
     content_fields = included_doctypes[doc.doctype]["content"]
-    extra_fields = included_doctypes[doc.doctype]["extras"]
-
+    extra_fields = included_doctypes[doc.doctype].get("extras", [])
     writer.add_document(
         Document(
             id=id,
@@ -263,7 +267,7 @@ def build_complete_index(auto_index=False):
             if auto_index
             else doctype_record["content"]
         )
-        extra_fields = [] if auto_index else doctype_record["extras"]
+        extra_fields = [] if auto_index else doctype_record.get("extras", [])
 
         if (
             not auto_index
@@ -271,7 +275,9 @@ def build_complete_index(auto_index=False):
             and not doctype_obj.issingle
         ):
             title_field = (
-                doctype["title_field"] if auto_index else doctype_record["title"][-1]
+                doctype["title_field"]
+                if auto_index
+                else doctype_record.get("title", ["name"])[-1]
             ) or "name"
 
             db_records = frappe.get_all(
@@ -289,7 +295,10 @@ def build_complete_index(auto_index=False):
                     data = {
                         "title": str(title),
                         "content": "|||".join(
-                            map(lambda x: md(str(x), convert=[]), record.values())
+                            map(
+                                lambda x: md(str(x), convert=[]),
+                                (getattr(record, field) for field in content_fields),
+                            )
                         ),
                         "name": record.name or title,
                         "doctype": doctype["name"],
