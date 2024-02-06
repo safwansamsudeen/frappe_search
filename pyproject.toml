@@ -1,7 +1,7 @@
 [project]
 name = "frappe_search"
 authors = [
-    { name = "Safwan Samsudeen", email = "dummy@mail.com"}
+    { name = "Safwan Samsudeen", email = "safwan@frappe.io"}
 ]
 description = "Full text search for Frappe"
 requires-python = ">=3.10"
