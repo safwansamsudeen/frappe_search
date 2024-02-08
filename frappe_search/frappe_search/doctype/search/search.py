@@ -159,7 +159,7 @@ def highlight(results, searcher, query, schema):
                 "no_of_title_highlights": len(title_snippet.highlighted()),
                 "no_of_content_highlights": len(content_snippet.highlighted()),
                 "url": get_url(doc),
-                "extras": doc["extras"][0],
+                "fields": doc["fields"][0],
                 "id": doc["id"][0],
                 "addr": (segment_ord, _doc),
             }
@@ -177,7 +177,7 @@ def get_schema():
     schema_builder.add_text_field("name", stored=True)
     schema_builder.add_text_field("title", stored=True, tokenizer_name="en_stem")
     schema_builder.add_text_field("content", stored=True, tokenizer_name="en_stem")
-    schema_builder.add_json_field("extras", stored=True)
+    schema_builder.add_json_field("fields", stored=True)
     schema_builder.add_text_field("doctype", stored=True)
     return schema_builder.build()
 
@@ -199,7 +199,7 @@ def update_index(doc, _=None):
                 for field in doctype_obj.fields
                 if field.in_global_search and field.fieldname != title
             ],
-            "extras": [],
+            "fields": [],
         }
     elif doc.doctype not in included_doctypes:
         return False
@@ -210,7 +210,7 @@ def update_index(doc, _=None):
 
     title_field = included_doctypes[doc.doctype].get("title", ["name"])[0]
     content_fields = included_doctypes[doc.doctype]["content"]
-    extra_fields = included_doctypes[doc.doctype].get("extras", [])
+    extra_fields = included_doctypes[doc.doctype].get("fields", [])
     writer.add_document(
         Document(
             id=id,
@@ -223,7 +223,7 @@ def update_index(doc, _=None):
                     (getattr(doc, field) for field in content_fields),
                 )
             ),
-            extras={field: getattr(doc, field) for field in extra_fields},
+            fields={field: getattr(doc, field) for field in extra_fields},
         )
     )
     writer.commit()
@@ -267,7 +267,7 @@ def build_complete_index(auto_index=False):
             if auto_index
             else doctype_record["content"]
         )
-        extra_fields = [] if auto_index else doctype_record.get("extras", [])
+        extra_fields = [] if auto_index else doctype_record.get("fields", [])
 
         if (
             not auto_index
@@ -287,9 +287,9 @@ def build_complete_index(auto_index=False):
             if db_records:
                 for record in db_records:
                     title = record.pop(title_field)
-                    extras = {}
+                    fields = {}
                     for extra_field in extra_fields:
-                        extras[extra_field] = record.pop(extra_field)
+                        fields[extra_field] = record.pop(extra_field)
 
                     unique_str = f'{doctype["name"]}-{record.name}'
                     data = {
@@ -302,7 +302,7 @@ def build_complete_index(auto_index=False):
                         ),
                         "name": record.name or title,
                         "doctype": doctype["name"],
-                        "extras": extras,
+                        "fields": fields,
                         "id": unique_str,
                     }
                     no_records += 1

@@ -6,7 +6,7 @@ import frappe
 
 
 @frappe.whitelist()
-def search(query, target_number=25, groupby=True):
+def search(query, target_number=25, groupby=False):
     if groupby == "true":
         groupby = True
     elif isinstance(groupby, str):

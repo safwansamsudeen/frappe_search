@@ -8,7 +8,7 @@ frappe.ui.form.on("Search", {
         "Are you sure you want to index or reindex the entire DB?",
         () => {
           frappe.call({
-            method: "frappe_search.core.build_index",
+            method: "frappe_search.api.build_index",
             callback: (e) =>
               frappe.msgprint(`Completed indexing: added ${e.message} items.`),
           });
@@ -21,7 +21,7 @@ frappe.ui.form.on("Search", {
         [{ fieldname: "query", fieldtype: "Data", label: "Query", reqd: 1 }],
         function ({ query }) {
           frappe.call({
-            method: "frappe_search.core.search",
+            method: "frappe_search.api.search",
             args: { query, groupby: true },
             callback: ({ message: { results, duration, total } }) => {
               let html = `<p>You obtained ${total} results in about ${duration} milliseconds.</p>`;
