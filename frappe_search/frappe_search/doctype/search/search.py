@@ -2,15 +2,16 @@
 # For license information, please see license.txt
 from __future__ import unicode_literals
 
-from tantivy import Document, Index, SchemaBuilder, DocAddress, SnippetGenerator
 from collections import defaultdict
 from datetime import datetime
+import os
+
+from tantivy import Document, Index, SchemaBuilder, DocAddress, SnippetGenerator
 
 import frappe
 from markdownify import markdownify as md
 from frappe.utils.data import get_absolute_url
-
-import frappe
+from frappe.utils import get_site_base_path, get_bench_path
 from frappe.model.document import Document as FrappeDocument
 
 
@@ -18,7 +19,6 @@ class Search(FrappeDocument):
     pass
 
 
-INDEX_PATH = "/Users/safwan/frappe-bench/apps/frappe_search/index"
 EXCLUDED_DOCTYPES = [
     "DocField",
     "Workspace Shortcut",
@@ -27,9 +27,17 @@ EXCLUDED_DOCTYPES = [
 ]
 
 
+def get_frappe_search_index():
+    return os.path.join(
+        get_bench_path(), "sites", get_site_base_path(), "frappe-search-index"
+    )
+
+
 def tantivy_search(query_txt, target_number, groupby):
     a = datetime.now()
     schema = get_schema()
+
+    INDEX_PATH = get_frappe_search_index()
     index = Index.open(INDEX_PATH)
     searcher = index.searcher()
 
@@ -184,6 +192,8 @@ def get_schema():
 
 @frappe.whitelist()
 def update_index(doc, _=None):
+    INDEX_PATH = get_frappe_search_index()
+
     index = Index(get_schema(), path=INDEX_PATH)
     included_doctypes = frappe.get_hooks("frappe_search_doctypes", {})
     writer = index.writer()
@@ -232,6 +242,7 @@ def update_index(doc, _=None):
 
 
 def build_complete_index(auto_index=False):
+    INDEX_PATH = get_frappe_search_index()
     included_doctypes = frappe.get_hooks("frappe_search_doctypes", {})
     if not included_doctypes:
         auto_index = True
