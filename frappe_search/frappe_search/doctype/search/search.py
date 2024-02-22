@@ -33,7 +33,7 @@ def get_frappe_search_index():
     )
 
 
-def tantivy_search(query_txt, target_number, groupby):
+def tantivy_search(query_txt, target_number, groupby, fuzzy=False):
     a = datetime.now()
     schema = get_schema()
 
@@ -48,11 +48,14 @@ def tantivy_search(query_txt, target_number, groupby):
 
     # Parse individual tokens, and try to see intersections
     for token in tokens:
-        query = index.parse_query(
-            token,
-            ["title", "content", "name"],
-            fuzzy_fields={"title": (True, 2, True), "content": (True, 2, True)},
-        )
+        if fuzzy:
+            query = index.parse_query(
+                token,
+                ["title", "content", "name"],
+                fuzzy_fields={"title": (True, 2, True), "content": (True, 2, True)},
+            )
+        else:
+            query = index.parse_query(token, ["title", "content", "name"])
         token_hit = {
             (best_doc_address.segment_ord, best_doc_address.doc)
             for _, best_doc_address in searcher.search(query, 1000).hits
@@ -64,21 +67,30 @@ def tantivy_search(query_txt, target_number, groupby):
     if all(not hit for hit in hits):
         b = datetime.now()
         diff = b - a
-        return {
-            "results": [],
-            "duration": diff.seconds * 100 + (diff.microseconds / 1000),
-            "total": 0,
-        }
+        duration = diff.seconds * 100 + (diff.microseconds / 1000)
+        if fuzzy:
+            return {
+                "results": [],
+                "duration": duration,
+                "total": 0,
+            }
+        else:
+            res = tantivy_search(query_txt, target_number, groupby, True)
+            return {**res, "duration": res["duration"] + duration}
 
     results = list(set.intersection(*hits))
 
     # Parse entire query
     if not results:
-        query = index.parse_query(
-            query_txt,
-            ["title", "content", "name"],
-            fuzzy_fields={"title": (True, 2, True), "content": (True, 2, True)},
-        )
+        if fuzzy:
+            query = index.parse_query(
+                query_txt,
+                ["title", "content", "name"],
+                fuzzy_fields={"title": (True, 2, True), "content": (True, 2, True)},
+            )
+        else:
+            query = index.parse_query(query_txt, ["title", "content", "name"])
+
         results.extend(
             [
                 r
@@ -114,11 +126,16 @@ def tantivy_search(query_txt, target_number, groupby):
         if groupby
         else (target_number, result_docs[:target_number])
     )
+
     diff = b - a
+    duration = diff.seconds * 100 + (diff.microseconds / 1000)
+    if not final_results and not fuzzy:
+        res = tantivy_search(query_txt, target_number, groupby, True)
+        return {**res, "duration": res["duration"] + duration}
 
     return {
         "results": final_results,
-        "duration": diff.seconds * 100 + (diff.microseconds / 1000),
+        "duration": duration,
         "total": n,
     }
 
