@@ -13,6 +13,7 @@ from markdownify import markdownify as md
 from frappe.utils.data import get_absolute_url
 from frappe.utils import get_site_base_path, get_bench_path
 from frappe.model.document import Document as FrappeDocument
+import sys
 
 
 class Search(FrappeDocument):
@@ -28,9 +29,12 @@ EXCLUDED_DOCTYPES = [
 
 
 def get_frappe_search_index():
-    return os.path.join(
+    index = os.path.join(
         get_bench_path(), "sites", get_site_base_path(), "frappe-search-index"
     )
+    if os.path.exists(index):
+        return index
+    raise ValueError("Please create index directory!")
 
 
 def tantivy_search(query_txt, target_number, groupby, fuzzy=False):
@@ -209,9 +213,7 @@ def get_schema():
 
 @frappe.whitelist()
 def update_index(doc, _=None):
-    INDEX_PATH = get_frappe_search_index()
-
-    index = Index(get_schema(), path=INDEX_PATH)
+    index = Index(get_schema(), path=get_frappe_search_index())
     included_doctypes = frappe.get_hooks("frappe_search_doctypes", {})
     writer = index.writer()
     if not included_doctypes:
@@ -259,7 +261,6 @@ def update_index(doc, _=None):
 
 
 def build_complete_index(auto_index=False):
-    INDEX_PATH = get_frappe_search_index()
     included_doctypes = frappe.get_hooks("frappe_search_doctypes", {})
     if not included_doctypes:
         auto_index = True
@@ -269,7 +270,7 @@ def build_complete_index(auto_index=False):
         fields=["name", "title_field"],
     )
     schema = get_schema()
-    index = Index(schema, path=INDEX_PATH)
+    index = Index(schema, path=get_frappe_search_index())
     writer = index.writer()
 
     # Reset index
