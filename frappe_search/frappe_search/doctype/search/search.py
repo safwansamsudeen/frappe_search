@@ -220,7 +220,9 @@ def update_index(doc, _=None):
         doctype_obj = frappe.get_doc("DocType", doc.doctype)
         if not doctype_obj.index_web_pages_for_search or doctype_obj.issingle:
             return False
-        title = doctype_obj.title_field or "name"
+        title = doctype_obj.title_field
+        if not title:
+            print(title)
         included_doctypes[doctype_obj.name] = {
             "title": [title],
             "content": [
@@ -237,7 +239,7 @@ def update_index(doc, _=None):
     writer.delete_documents("id", id)
     writer.commit()
 
-    title_field = included_doctypes[doc.doctype].get("title", ["name"])[0]
+    title_field = included_doctypes[doc.doctype].get("title", [None])[0]
     content_fields = included_doctypes[doc.doctype]["content"]
     extra_fields = included_doctypes[doc.doctype].get("fields", [])
     writer.add_document(
@@ -245,7 +247,7 @@ def update_index(doc, _=None):
             id=id,
             doctype=doc.doctype,
             name=doc.name,
-            title=str(getattr(doc, title_field)),
+            title=str(getattr(doc, title_field)) if title_field else "",
             content="|||".join(
                 map(
                     lambda x: md(str(x), convert=[]),
@@ -306,8 +308,8 @@ def build_complete_index(auto_index=False):
             title_field = (
                 doctype["title_field"]
                 if auto_index
-                else doctype_record.get("title", ["name"])[-1]
-            ) or "name"
+                else doctype_record.get("title", [None])[-1]
+            )
 
             db_records = frappe.get_all(
                 doctype["name"],
@@ -315,7 +317,7 @@ def build_complete_index(auto_index=False):
             )
             if db_records:
                 for record in db_records:
-                    title = record.pop(title_field)
+                    title = record.pop(title_field) if title_field else ""
                     fields = {}
                     for extra_field in extra_fields:
                         fields[extra_field] = record.pop(extra_field)
