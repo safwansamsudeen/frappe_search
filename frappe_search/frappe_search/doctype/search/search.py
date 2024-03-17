@@ -11,9 +11,8 @@ from tantivy import Document, Index, SchemaBuilder, DocAddress, SnippetGenerator
 import frappe
 from markdownify import markdownify as md
 from frappe.utils.data import get_absolute_url
-from frappe.utils import get_site_base_path, get_bench_path
+from frappe.utils import get_site_base_path, get_bench_path, update_progress_bar
 from frappe.model.document import Document as FrappeDocument
-import sys
 
 
 class Search(FrappeDocument):
@@ -216,6 +215,7 @@ def update_index(doc, _=None):
     index = Index(get_schema(), path=get_frappe_search_index())
     included_doctypes = frappe.get_hooks("frappe_search_doctypes", {})
     writer = index.writer()
+
     if not included_doctypes:
         doctype_obj = frappe.get_doc("DocType", doc.doctype)
         if not doctype_obj.index_web_pages_for_search or doctype_obj.issingle:
@@ -279,9 +279,12 @@ def build_complete_index(auto_index=False):
     writer.delete_all_documents()
     writer.commit()
 
+    total = len(doctypes)
     no_records = 0
 
-    for doctype in doctypes:
+    for i, doctype in enumerate(doctypes):
+        update_progress_bar("Indexing:", i, total)
+
         if not auto_index and doctype["name"] not in included_doctypes:
             continue
         if auto_index and doctype["name"] in EXCLUDED_DOCTYPES:
@@ -338,6 +341,7 @@ def build_complete_index(auto_index=False):
                     }
                     no_records += 1
                     writer.add_document(Document(**data))
-
     writer.commit()
+
+    print()
     return no_records
